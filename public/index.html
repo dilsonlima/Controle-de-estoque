@@ -1,0 +1,162 @@
+<!DOCTYPE html>
+<html lang="pt-BR">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>Controle de Estoque</title>
+  <style>
+    body { font-family: sans-serif; background: #f4f4f4; margin: 0; padding: 2rem; }
+    h1 { text-align: center; }
+    table { width: 100%; border-collapse: collapse; background: #fff; margin-top: 2rem; }
+    th, td { border: 1px solid #ccc; padding: 0.5rem; text-align: left; }
+    th { background: #eee; }
+    .critico { background-color: #ffb3b3; }
+    .baixo { background-color: #fff3cd; }
+    form { background: #fff; padding: 1rem; border: 1px solid #ccc; max-width: 800px; margin: 0 auto; }
+    label { display: block; margin-top: 0.5rem; }
+    input { width: 100%; padding: 0.4rem; margin-top: 0.2rem; }
+    button { margin-top: 1rem; padding: 0.5rem 1rem; cursor: pointer; }
+    .btns { display: flex; gap: 0.5rem; }
+    .btn-editar, .btn-excluir { padding: 0.3rem 0.6rem; cursor: pointer; border: none; border-radius: 4px; }
+    .btn-editar { background-color: #2196f3; color: white; }
+    .btn-excluir { background-color: #f44336; color: white; }
+  </style>
+</head>
+<body>
+  <h1>Materiais em Estoque</h1>
+
+  <form id="form-material">
+    <h2>Adicionar Novo Material</h2>
+    <label>Nome: <input type="text" name="nome" required></label>
+    <label>Unidade: <input type="text" name="unidade" required></label>
+    <label>Estoque Atual: <input type="number" name="estoque_atual" step="0.01" required></label>
+    <label>Lead Time (dias): <input type="number" name="lead_time_dias" required></label>
+    <button type="submit">Cadastrar</button>
+  </form>
+
+  <button onclick="atualizarMateriaisAntigos()">Atualizar Materiais Antigos</button>
+
+  <table>
+    <thead>
+      <tr>
+        <th>Nome</th>
+        <th>Unidade</th>
+        <th>Atual</th>
+        <th>Mínimo</th>
+        <th>Emergencial</th>
+        <th>Lead Time (dias)</th>
+        <th>Ponto de Recompra</th>
+        <th>Ações</th>
+      </tr>
+    </thead>
+    <tbody id="tabela-materiais"></tbody>
+  </table>
+
+  <script>
+    const form = document.getElementById('form-material');
+
+    form.addEventListener('submit', async (e) => {
+      e.preventDefault();
+      const data = Object.fromEntries(new FormData(form));
+      data.estoque_atual = parseFloat(data.estoque_atual);
+      data.lead_time_dias = parseInt(data.lead_time_dias);
+
+      const consumo_medio_diario = 10;
+      const estoque_minimo = consumo_medio_diario * data.lead_time_dias;
+      const estoque_emergencial = estoque_minimo * 0.5;
+      const ponto_recompra = estoque_minimo + estoque_emergencial;
+
+      data.estoque_minimo = estoque_minimo;
+      data.estoque_emergencial = estoque_emergencial;
+      data.ponto_recompra = ponto_recompra;
+
+      const res = await fetch('/api/materiais/criar', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify(data)
+      });
+
+      if (res.ok) {
+        const novoMaterial = await res.json();
+        form.reset();
+        adicionarMaterialNaTabela(novoMaterial);
+      } else {
+        alert('Erro ao cadastrar material');
+      }
+    });
+
+    async function carregarMateriais() {
+      const res = await fetch('/api/materiais');
+      const materiais = await res.json();
+      const tbody = document.getElementById('tabela-materiais');
+      tbody.innerHTML = '';
+      materiais.forEach(adicionarMaterialNaTabela);
+    }
+
+    function adicionarMaterialNaTabela(mat) {
+      const tbody = document.getElementById('tabela-materiais');
+      const tr = document.createElement('tr');
+      if (mat.estoque_atual <= mat.estoque_emergencial) {
+        tr.className = 'critico';
+      } else if (mat.estoque_atual <= mat.estoque_minimo) {
+        tr.className = 'baixo';
+      }
+      tr.innerHTML = `
+        <td>${mat.nome}</td>
+        <td>${mat.unidade}</td>
+        <td>${mat.estoque_atual}</td>
+        <td>${mat.estoque_minimo?.toFixed(2) ?? '—'}</td>
+        <td>${mat.estoque_emergencial?.toFixed(2) ?? '—'}</td>
+        <td>${mat.lead_time_dias}</td>
+        <td>${mat.ponto_recompra?.toFixed(2) ?? '—'}</td>
+        <td class="btns">
+          <button class="btn-editar" onclick="editarMaterial(${mat.id})">Editar</button>
+          <button class="btn-excluir" onclick="excluirMaterial(${mat.id})">Excluir</button>
+        </td>
+      `;
+      tbody.appendChild(tr);
+    }
+
+    async function excluirMaterial(id) {
+      if (!confirm('Tem certeza que deseja excluir este material?')) return;
+      const res = await fetch(`/api/materiais/${id}`, { method: 'DELETE' });
+      if (res.ok) carregarMateriais();
+      else alert('Erro ao excluir material');
+    }
+
+    function editarMaterial(id) {
+      alert('Funcionalidade de edição em desenvolvimento.');
+    }
+
+    async function atualizarMateriaisAntigos() {
+      const consumo_medio_diario = 10;
+      const res = await fetch('/api/materiais');
+      const materiais = await res.json();
+
+      for (const mat of materiais) {
+        const estoque_minimo = consumo_medio_diario * mat.lead_time_dias;
+        const estoque_emergencial = estoque_minimo * 0.5;
+        const ponto_recompra = estoque_minimo + estoque_emergencial;
+
+        const atualizado = {
+          ...mat,
+          estoque_minimo,
+          estoque_emergencial,
+          ponto_recompra
+        };
+
+        await fetch(`/api/materiais/${mat.id}`, {
+          method: 'PUT',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify(atualizado)
+        });
+      }
+
+      carregarMateriais();
+      alert('Materiais antigos atualizados com sucesso.');
+    }
+
+    carregarMateriais();
+  </script>
+</body>
+</html>
